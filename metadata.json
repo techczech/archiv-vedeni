@@ -1,0 +1,7 @@
+{
+  "name": "Archiv Vědění: Společenská Hra",
+  "description": "Interaktivní vědomostní hra pro 2-8 hráčů zasazená do tajemného světa archivářů. Prověřte své znalosti z historie, umění, geografie a světového dění.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
