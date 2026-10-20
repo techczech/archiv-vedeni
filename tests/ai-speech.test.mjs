@@ -7,6 +7,7 @@ import { TTSMode } from '../types.ts';
 
 let spoken, played, requests;
 beforeEach(() => {
+  globalThis.localStorage = { getItem: () => null };
   stopAllSpeech();
   spoken = []; played = []; requests = [];
   globalThis.window = { speechSynthesis: { cancel() {}, getVoices: () => [], speak: u => { spoken.push(u); u.onend?.(); } } };
@@ -26,7 +27,7 @@ test('successful AI speech is cached by text, voice and language', async () => {
   await speak('Mezipaměť', TTSMode.GEMINI, 'Puck');
   assert.equal(requests.length, 2);
 });
-for (const status of [503, 500, 504]) test(`AI speech falls back to browser on HTTP ${status}`, async () => {
+for (const status of [401, 503, 500, 504]) test(`AI speech falls back to browser on HTTP ${status}`, async () => {
   globalThis.fetch = async () => new Response('', { status });
   let ends = 0; await speak(`Záloha ${status}`, TTSMode.GEMINI, 'Kore', () => ends++);
   assert.equal(spoken.length, 1); assert.equal(ends, 1);
@@ -50,14 +51,14 @@ test('audio playback failure falls back to browser', async () => {
   await speak('Chybný zvuk', TTSMode.GEMINI); assert.equal(spoken.length, 1);
 });
 
-const request = body => new Request('https://quiz.example/api/ai', { method: 'POST', headers: { origin: 'https://quiz.example', 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const request = body => new Request('https://quiz.example/api/ai', { method: 'POST', headers: { origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder' }, body: JSON.stringify(body) });
 test('missing server keys return 503 without any upstream request', async () => {
-  const handler = createAIHandler({}, () => { throw new Error('must not call'); });
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder' }, () => { throw new Error('must not call'); });
   for (const language of ['cs', 'en']) assert.equal((await handler(request({ action: 'speak', text: 'Test', language }))).status, 503);
 });
 test('Czech uses Gemini 3.8 Interactions and returns WAV audio', async () => {
   let sent;
-  const handler = createAIHandler({ GEMINI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', GEMINI_API_KEY: 'test-placeholder' }, async (url, init) => {
     sent = { url, body: JSON.parse(init.body) };
     return Response.json({ steps: [{ type: 'model_output', content: [{ type: 'audio', data: 'UklGRg==', mime_type: 'audio/wav' }] }] });
   });
@@ -69,7 +70,7 @@ test('Czech uses Gemini 3.8 Interactions and returns WAV audio', async () => {
 });
 test('English uses OpenAI mini TTS and an OpenAI voice', async () => {
   let sent;
-  const handler = createAIHandler({ OPENAI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async (url, init) => {
     sent = { url, body: JSON.parse(init.body) }; return new Response(new Uint8Array([1, 2]), { headers: { 'content-type': 'audio/mpeg' } });
   });
   assert.equal((await handler(request({ action: 'speak', language: 'en', text: 'Who?', voice: 'Zephyr' }))).status, 200);
@@ -77,7 +78,7 @@ test('English uses OpenAI mini TTS and an OpenAI voice', async () => {
 });
 test('transcription uses a recorded file and plural languages hint', async () => {
   let sent;
-  const handler = createAIHandler({ OPENAI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async (url, init) => {
     sent = { url, form: init.body }; return Response.json({ text: 'Karel Čapek' });
   });
   const result = await handler(request({ action: 'transcribe', language: 'cs', audio: 'AQID', mimeType: 'audio/webm;codecs=opus' }));
@@ -86,7 +87,7 @@ test('transcription uses a recorded file and plural languages hint', async () =>
   assert.equal(sent.form.get('languages[]'), 'cs'); assert.equal(sent.form.get('file').name, 'answer.webm');
 });
 test('server strips upstream errors and rejects cross-origin and oversized input', async () => {
-  const handler = createAIHandler({ OPENAI_API_KEY: 'test-placeholder' }, async () => new Response('sensitive upstream diagnostic', { status: 401 }));
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async () => new Response('sensitive upstream diagnostic', { status: 401 }));
   const result = await handler(request({ action: 'speak', text: 'Hi', language: 'en' }));
   assert.equal(result.status, 502); assert.doesNotMatch(await result.text(), /sensitive|placeholder/);
   const foreign = new Request('https://quiz.example/api/ai', { method: 'POST', headers: { origin: 'https://elsewhere.example' }, body: '{}' });
@@ -101,17 +102,17 @@ test('AI speech timeout automatically reads the question with the browser', asyn
   t.mock.timers.tick(15001); await pending; assert.equal(spoken.length, 1);
 });
 test('server times out upstream requests and returns a safe fallback status', async () => {
-  const handler = createAIHandler({ OPENAI_API_KEY: 'test-placeholder' }, () => new Promise(() => {}), 5);
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, () => new Promise(() => {}), 5);
   assert.equal((await handler(request({ action: 'speak', text: 'Hello', language: 'en' }))).status, 504);
 });
 test('generation stays server-side and returns only the generated text', async () => {
   let sent;
-  const handler = createAIHandler({ GEMINI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', GEMINI_API_KEY: 'test-placeholder' }, async (url, init) => {
     sent = { url, body: JSON.parse(init.body) };
     return Response.json({ candidates: [{ content: { parts: [{ thought: true, text: 'private model reasoning' }, { text: '{"correctnessScore":100}' }] } }], diagnostic: 'must not return' });
   });
-  const result = await handler(request({ action: 'generate', request: { model: 'gemini-3-flash-preview', contents: 'Judge answer', config: { responseMimeType: 'application/json' } } }));
-  assert.match(sent.url, /generateContent$/); assert.equal(sent.body.contents[0].parts[0].text, 'Judge answer');
+  const result = await handler(request({ action: 'generate', request: { model: 'gemini-3-flash-preview', operation: 'judge', params: { questionText: 'Kdo?', correctAnswer: 'Karel Čapek', userAnswer: 'Čapek' } } }));
+  assert.match(sent.url, /generateContent$/); assert.match(sent.body.contents[0].parts[0].text, /Soudce Gem/);
   assert.deepEqual(await result.json(), { text: '{"correctnessScore":100}' });
 });
 
@@ -122,8 +123,8 @@ test('cache separates languages even when text and requested voice are identical
 });
 test('missing transcription key and upstream errors return fallback statuses', async () => {
   const body = { action: 'transcribe', audio: 'AQID', mimeType: 'audio/webm', language: 'cs' };
-  assert.equal((await createAIHandler({})(request(body))).status, 503);
-  const handler = createAIHandler({ OPENAI_API_KEY: 'test-placeholder' }, async () => new Response('', { status: 500 }));
+  assert.equal((await createAIHandler({ APP_ACCESS_CODE: 'test-placeholder' })(request(body))).status, 503);
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async () => new Response('', { status: 500 }));
   assert.equal((await handler(request(body))).status, 502);
 });
 
@@ -137,13 +138,21 @@ test('client does not import credential-handling SDK or inject provider env vari
   assert.doesNotMatch(await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8'), /process\.env|loadEnv|API_KEY/);
 });
 
-test('Vercel adapter accepts parsed, raw and buffer request bodies without exposing server configuration', async () => {
+test('Vercel adapter accepts parsed, raw and buffer request bodies without exposing server configuration', async t => {
+  t.mock.property(process, 'env', { APP_ACCESS_CODE: 'test-placeholder' });
   const { default: handler } = await import('../api/ai.ts');
   const payload = { action: 'speak', language: 'cs', text: '' };
   for (const body of [payload, JSON.stringify(payload), Buffer.from(JSON.stringify(payload))]) {
     let status, output;
     const res = { writeHead(code) { status = code; return this; }, end(data) { output = data; } };
-    await handler({ headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json' }, method: 'POST', body }, res);
+    await handler({ headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder' }, method: 'POST', body }, res);
     assert.equal(status, 400); assert.doesNotMatch(output.toString(), /API_KEY|placeholder/);
+  }
+  // Three requests above plus 27 below exhaust the same module-level instance.
+  for (let i = 0; i < 28; i++) {
+    let status;
+    await handler({ headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder' }, method: 'POST', body: payload },
+      { writeHead(code) { status = code; return this; }, end() {} });
+    assert.equal(status, i === 27 ? 429 : 400);
   }
 });

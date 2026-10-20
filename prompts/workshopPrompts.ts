@@ -8,7 +8,7 @@ export const getCategoryGeneratorPrompt = (
   category: Category,
   difficulty: Difficulty,
   refinement: string = "",
-  positiveExamples: Question[] = []
+  positiveExamples: Pick<Question, 'text' | 'options' | 'explanation'>[] = []
 ) => {
   const categorySpecifics: Record<string, string> = {
     [Category.HISTORY]: "Zaměř se na klíčové historické milníky, osobnosti a diplomatické souvislosti. U obtížnosti HARD se vyhýbej prostým letopočtům v možnostech.",
@@ -119,8 +119,8 @@ Vrať JSON:
  */
 export const PROMPT_REFINEMENT_PROMPT = (
   batchResults: any[], 
-  positiveExamples: Question[], 
-  negativeExamples: { question: Question; feedback: string }[],
+  positiveExamples: Pick<Question, 'text'>[],
+  negativeExamples: { question: Pick<Question, 'text'>; feedback: string }[],
   globalFeedback: string, 
   currentRefinement: string
 ) => `

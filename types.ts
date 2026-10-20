@@ -207,3 +207,18 @@ export interface GameSummary {
   mode?: GameMode;
   savedState?: GameState;
 }
+
+// Only these game tasks cross the AI boundary; prompts and provider config stay on the server.
+export type AIQuestionExample = Pick<Question, 'text' | 'options' | 'explanation'>;
+export type AIBatchResult = { text: string; status: WorkshopQuestion['status']; evals: { uniq: number; dist: number; level: number } };
+export type AIGenerationTask =
+  | { operation: 'question'; params: { category: Category; difficulty: Difficulty; avoidEntities: string[]; childMode: boolean } }
+  | { operation: 'batch'; params: { count: number } }
+  | { operation: 'judge'; params: { questionText: string; correctAnswer: string; userAnswer: string } }
+  | { operation: 'workshopQuestion'; params: { category: Category; difficulty: Difficulty; refinement: string; positiveExamples: AIQuestionExample[] } }
+  | { operation: 'workshopUniqueness'; params: { questionText: string; context: string[] } }
+  | { operation: 'workshopDistractors'; params: { question: Pick<Question, 'text' | 'options' | 'correctIndex'> } }
+  | { operation: 'workshopLevel'; params: { questionText: string; difficulty: Difficulty } }
+  | { operation: 'workshopRefinement'; params: { batchResults: AIBatchResult[]; positiveExamples: { text: string }[];
+      negativeExamples: { question: { text: string }; feedback: string }[]; globalFeedback: string; currentRefinement: string } };
+export type AIGenerationRequest = AIGenerationTask & { model: AIModel };

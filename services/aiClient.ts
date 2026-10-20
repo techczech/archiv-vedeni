@@ -1,7 +1,12 @@
-import type { Type as GoogleSchemaType } from '@google/genai';
+import type { AIGenerationRequest } from '../types';
 
-// Schema literals do not require loading the provider's credential-handling SDK in the browser.
-export const SchemaType = Object.fromEntries(['OBJECT', 'ARRAY', 'STRING', 'NUMBER', 'INTEGER', 'BOOLEAN'].map(value => [value, value])) as Record<'OBJECT' | 'ARRAY' | 'STRING' | 'NUMBER' | 'INTEGER' | 'BOOLEAN', GoogleSchemaType>;
+export const AI_ACCESS_NOTICE = 'Zadejte platný kód pro AI funkce v Nastavení. Hlasové funkce použijí prohlížeč, pokud je dostupný.';
+const ACCESS_STORAGE_KEY = 'archivari_ai_access';
+export function getAIAccessCode(): string {
+  try { return localStorage.getItem(ACCESS_STORAGE_KEY) || ''; } catch { return ''; }
+}
+export function setAIAccessCode(code: string): void { localStorage.setItem(ACCESS_STORAGE_KEY, code); }
+export class AIAccessError extends Error { constructor() { super(AI_ACCESS_NOTICE); } }
 
 // The browser only talks to its own server; provider credentials never enter this module.
 export async function requestAI<T>(body: unknown, signal?: AbortSignal, timeoutMs = 15000): Promise<T> {
@@ -17,9 +22,13 @@ export async function requestAI<T>(body: unknown, signal?: AbortSignal, timeoutM
   try {
     return await Promise.race([cancelled, (async () => {
       const response = await fetch('/api/ai', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-app-access': getAIAccessCode() },
         body: JSON.stringify(body), signal: controller.signal,
       });
+      if (response.status === 401) {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') window.dispatchEvent(new Event('ai-access-required'));
+        throw new AIAccessError();
+      }
       if (!response.ok) throw new Error(`AI služba není dostupná (${response.status}).`);
       return response.json() as Promise<T>;
     })()]);
@@ -29,7 +38,7 @@ export async function requestAI<T>(body: unknown, signal?: AbortSignal, timeoutM
   }
 }
 
-export const generateContent = (request: unknown) => requestAI<{ text: string }>({ action: 'generate', request }, undefined, 30000);
+export const generateContent = (request: AIGenerationRequest) => requestAI<{ text: string }>({ action: 'generate', request }, undefined, 30000);
 
 export function encodeAudio(bytes: Uint8Array): string {
   let binary = '';

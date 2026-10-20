@@ -1,8 +1,6 @@
 
-import type { Schema } from "@google/genai";
-import { generateContent, SchemaType as Type } from "./aiClient";
+import { generateContent } from "./aiClient";
 import { Category, Question, Difficulty, AIModel } from "../types";
-import { getGenerationPrompt, getBatchGenerationPrompt, getJudgePrompt } from "../prompts";
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -34,33 +32,6 @@ async function withRetry<T>(fn: (currentModel: AIModel) => Promise<T>, initialMo
   throw new Error("Maximální počet pokusů vyčerpán. Knihovna Archivu je momentálně přetížena.");
 }
 
-const questionSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    text: { type: Type.STRING },
-    options: { type: Type.ARRAY, items: { type: Type.STRING } },
-    correctIndex: { type: Type.INTEGER },
-    explanation: { type: Type.STRING },
-    hint: { type: Type.STRING },
-    keyEntity: { type: Type.STRING },
-    wikipediaSearchQuery: { type: Type.STRING },
-    category: { type: Type.STRING },
-    difficulty: { type: Type.STRING }
-  },
-  required: ["text", "options", "correctIndex", "explanation", "hint", "keyEntity", "wikipediaSearchQuery", "category", "difficulty"],
-};
-
-const batchQuestionSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    questions: {
-      type: Type.ARRAY,
-      items: questionSchema
-    }
-  },
-  required: ["questions"]
-};
-
 export const generateQuestion = async (
   category: Category, 
   difficulty: Difficulty, 
@@ -70,16 +41,9 @@ export const generateQuestion = async (
 ): Promise<Question> => {
 
   return withRetry(async (modelToUse) => {
-    const prompt = getGenerationPrompt(category, difficulty, avoidEntities, childMode);
-
     const response = await generateContent({
       model: modelToUse, 
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: questionSchema,
-        temperature: 0.9,
-      },
+      operation: 'question', params: { category, difficulty, avoidEntities: avoidEntities.slice(-100), childMode },
     });
 
     const data = JSON.parse(response.text || "{}");
@@ -107,16 +71,9 @@ export const generateBatchQuestions = async (
 ): Promise<Question[]> => {
 
   return withRetry(async (modelToUse) => {
-    const prompt = getBatchGenerationPrompt(count);
-
     const response = await generateContent({
       model: modelToUse, 
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: batchQuestionSchema,
-        temperature: 1.0,
-      },
+      operation: 'batch', params: { count },
     });
 
     const data = JSON.parse(response.text || "{\"questions\": []}");
@@ -128,16 +85,6 @@ export const generateBatchQuestions = async (
   }, preferredModel);
 };
 
-const evaluationSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    correctnessScore: { type: Type.NUMBER },
-    bonusPoints: { type: Type.INTEGER },
-    verdict: { type: Type.STRING },
-  },
-  required: ["correctnessScore", "bonusPoints", "verdict"],
-};
-
 export const evaluateAnswer = async (
   question: Question,
   userAnswer: string,
@@ -145,16 +92,9 @@ export const evaluateAnswer = async (
 ): Promise<{ correctnessScore: number; bonusPoints: number; verdict: string }> => {
 
   return withRetry(async (modelToUse) => {
-    const prompt = getJudgePrompt(question.text, question.options[question.correctIndex], userAnswer);
-
     const response = await generateContent({
       model: modelToUse,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: evaluationSchema,
-        temperature: 0.1,
-      },
+      operation: 'judge', params: { questionText: question.text, correctAnswer: question.options[question.correctIndex], userAnswer },
     });
 
     return JSON.parse(response.text || "{}");

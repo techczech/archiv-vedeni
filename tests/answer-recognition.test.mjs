@@ -9,6 +9,7 @@ import { GameMode, Category, Difficulty } from '../types.ts';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 function environment({ browser = true, failAI = false } = {}) {
+  globalThis.localStorage = { getItem: () => null };
   let recognition, recorder, stopped = 0;
   const stream = { getTracks: () => [{ stop() { stopped++; } }] };
   globalThis.window = { speechSynthesis: { cancel() {} }, ...(browser ? { webkitSpeechRecognition: class {
@@ -109,5 +110,42 @@ test('settings keep browser defaults and expose optional AI recognition and Engl
   await act(async () => language.props.onChange({ target: { value: 'en' } }));
   assert.equal(updated.speechLanguage, 'en');
   assert.equal(DEFAULT_CONFIG.ttsMode, 'Prohlížeč (Zdarma)');
+  await act(async () => renderer.unmount());
+});
+
+for (const browser of [true, false]) test(`401 recognition falls back with Settings notice (browser=${browser})`, async () => {
+  const env = environment({ browser }); const notices = [], results = [];
+  globalThis.fetch = async () => new Response('', { status: 401 });
+  const session = createAnswerRecognition({ mode: 'ai', onTranscript: t => results.push(t), onState() {}, onNotice: n => notices.push(n) });
+  await session.start(); session.stop(); await settle();
+  assert.match(notices.join(' '), /[Kk]ód.*[Nn]astavení/);
+  assert.equal(!!env.recognition, browser); assert.equal(results.length, browser ? 1 : 0);
+  session.cancel();
+});
+test('Settings saves the access code locally and restores it on remount', async () => {
+  const { default: SettingsPage } = await import('../components/SettingsPage.tsx');
+  environment({ browser: false }); window.speechSynthesis = undefined;
+  const storage = new Map(); globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k,v) => storage.set(k,v) };
+  const props = { config: DEFAULT_CONFIG, questionBankCount: 0, isGeneratingBatch: false,
+    onUpdateConfig() {}, onGenerateBatch() {}, onImportBank() {}, onGoToArchive() {}, onGoToWorkshop() {}, onBack() {} };
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(SettingsPage, props)); });
+  const input = renderer.root.findByProps({ 'aria-label': 'Kód pro AI funkce' });
+  assert.equal(input.props.type, 'password');
+  await act(async () => input.props.onChange({ target: { value: 'test-placeholder' } }));
+  await act(async () => renderer.unmount());
+  await act(async () => { renderer = create(React.createElement(SettingsPage, props)); });
+  assert.equal(renderer.root.findByProps({ 'aria-label': 'Kód pro AI funkce' }).props.value, 'test-placeholder');
+  await act(async () => renderer.unmount());
+});
+
+test('app displays the access-code notice after an AI 401 event', async () => {
+  const { default: App } = await import('../App.tsx');
+  globalThis.window = new EventTarget();
+  globalThis.localStorage = { getItem: () => null, setItem() {} };
+  let renderer;
+  await act(async () => { renderer = create(React.createElement(App)); });
+  await act(async () => { window.dispatchEvent(new Event('ai-access-required')); });
+  assert.match(renderer.root.findByProps({ role: 'alert' }).children.join(' '), /[Kk]ód.*Nastavení/);
   await act(async () => renderer.unmount());
 });

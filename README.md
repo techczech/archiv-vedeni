@@ -91,7 +91,13 @@ Samotný Vite spouští frontend. Bez serverové funkce funguje místní archiv 
 
 Nasaďte celý projekt včetně `api/`, `server/` a `vercel.json`. Build příkaz je `npm run build`, výstupní složka `dist`. Samostatné nahrání složky `dist` na statický hosting AI funkce nezpřístupní.
 
-V serverovém prostředí Vercelu nastavte pouze názvy tajných proměnných `GEMINI_API_KEY` a `OPENAI_API_KEY`. Klíče nezadávejte do aplikace ani do veřejných proměnných Vite.
+V serverovém prostředí Vercelu nastavte tajné proměnné `GEMINI_API_KEY`, `OPENAI_API_KEY` a `APP_ACCESS_CODE`. Klíče poskytovatelů nezadávejte do aplikace ani do veřejných proměnných Vite. Přístupový kód zadejte jednou v **Nastavení → Parametry Hry → Kód pro AI funkce**; zůstane v localStorage tohoto prohlížeče a odešle se v hlavičce `x-app-access` s každým AI požadavkem.
+
+Bez platného kódu server vrátí 401 a poskytovatele nezavolá. Aplikace odkáže do Nastavení a hlasové funkce použijí prohlížeč, pokud je dostupný. Není-li `APP_ACCESS_CODE` nastavený, server všechny AI požadavky odmítá. Otevřený přístup lze výslovně povolit pouze nastavením `ALLOW_OPEN_AI_ENDPOINT=1`; pro veřejné nasazení tuto výjimku nepoužívejte. Nastavený kód má před touto výjimkou přednost.
+
+Každá instance funkce omezuje klientskou IP na tokenové zásobníky s kapacitou 30 požadavků a obnovou 30/minutu a kapacitou 300 s obnovou 300/hodinu; vyčerpání vrátí 429. Používá první IP z `x-forwarded-for`, kterou dodává Vercel. Limit je **v paměti jedné instance, nikoli globální**; studený start či další instance mají vlastní zásobníky. Kontrola Origin slouží pouze jako ochrana proti CSRF.
+
+Předčítání přijímá nejvýše 600 znaků a nahrávka 2 MB. Generování i posuzování používají pevné serverové šablony s typovanými, omezenými herními parametry. Vlastní prompty, konfigurace poskytovatele a neznámé operace server odmítá.
 
 V **Nastavení → Parametry Hry** jsou volby **Prohlížeč / AI hlas**, **Prohlížeč / AI rozpoznávání** a jazyk hlasu. Výchozí je prohlížeč a čeština. AI přepis se vloží do odpovědi, kterou lze před posouzením upravit. Při selhání AI rozpoznávání je třeba odpověď zopakovat do mikrofonu prohlížeče, pokud jej prohlížeč podporuje.
 

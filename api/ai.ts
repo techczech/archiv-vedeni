@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createAIHandler } from '../server/aiHandler';
 
+// Reuse one handler so rate buckets survive subsequent invocations in this instance.
+const handleAI = createAIHandler({ GEMINI_API_KEY: process.env.GEMINI_API_KEY, OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  APP_ACCESS_CODE: process.env.APP_ACCESS_CODE, ALLOW_OPEN_AI_ENDPOINT: process.env.ALLOW_OPEN_AI_ENDPOINT });
+
 // Vercel's Node function adapter; kept separate from the provider logic for offline tests.
 export default async function handler(req: IncomingMessage & { body?: unknown }, res: ServerResponse) {
   const headers = new Headers();
@@ -21,7 +25,7 @@ export default async function handler(req: IncomingMessage & { body?: unknown },
   const request = new Request(`${protocol}://${headers.get('host')}/api/ai`, {
     method: req.method, headers, ...(req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
   });
-  const response = await createAIHandler({ GEMINI_API_KEY: process.env.GEMINI_API_KEY, OPENAI_API_KEY: process.env.OPENAI_API_KEY })(request);
+  const response = await handleAI(request);
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
   res.end(Buffer.from(await response.arrayBuffer()));
 }

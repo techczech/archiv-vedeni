@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { AI_ACCESS_NOTICE } from './services/aiClient';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import SetupScreen from './components/SetupScreen';
@@ -51,6 +52,12 @@ const App: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [archiveList, setArchiveList] = useState<GameSummary[]>([]);
   const [questionBankCount, setQuestionBankCount] = useState(0);
+
+  useEffect(() => {
+    const notify = () => setErrorMsg(AI_ACCESS_NOTICE);
+    window.addEventListener('ai-access-required', notify);
+    return () => window.removeEventListener('ai-access-required', notify);
+  }, []);
 
   useEffect(() => {
     initializeQuestionBank();
@@ -362,7 +369,7 @@ const App: React.FC = () => {
               />
             )}
             {gameState.phase === GamePhase.GAME_OVER && <Card className="text-center"><div className="text-5xl font-serif text-amber-400 mb-4">{gameState.winner?.name} vyhrává!</div><Button onClick={handleGoHome} variant="primary">Domů</Button></Card>}
-            {errorMsg && <div onClick={() => setErrorMsg(null)} className="fixed bottom-4 right-4 bg-red-900 text-white px-6 py-4 rounded-lg shadow-xl cursor-pointer z-50 flex items-center gap-3"><span className="material-icons">error</span>{errorMsg}</div>}
+            {errorMsg && <div role="alert" onClick={() => setErrorMsg(null)} className="fixed bottom-4 right-4 bg-red-900 text-white px-6 py-4 rounded-lg shadow-xl cursor-pointer z-50 flex items-center gap-3"><span className="material-icons">error</span>{errorMsg}</div>}
           </div>
         </main>
       </div>

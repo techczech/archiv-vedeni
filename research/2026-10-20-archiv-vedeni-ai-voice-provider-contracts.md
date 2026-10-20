@@ -2,7 +2,7 @@
 title: "Archiv vedeni AI voice provider contracts"
 kind: "evidence"
 created: "2026-10-20T20:11:19Z"
-project: "/Users/dominiklukes/gitrepos/07_webapps-websites/02_lovable/archiv-vedeni.worktrees/ai-voices"
+project: "."
 sources:
   - url: "https://ai.google.dev/gemini-api/docs/speech-generation"
   - url: "https://developers.openai.com/api/docs/guides/text-to-speech"

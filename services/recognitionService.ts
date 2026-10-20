@@ -1,4 +1,4 @@
-import { encodeAudio, requestAI } from './aiClient';
+import { AIAccessError, encodeAudio, requestAI } from './aiClient';
 
 export type RecognitionState = 'idle' | 'listening' | 'transcribing';
 type Options = {
@@ -40,7 +40,10 @@ export function createAnswerRecognition(options: Options) {
     try { state('listening'); browser.start(); }
     catch { state('idle'); if (!cancelled) options.onNotice('Mikrofon nelze spustit. Odpověď můžete napsat.'); }
   };
-  const fallback = () => { releaseMic(); startBrowser(true); };
+  const fallback = (error?: unknown) => {
+    releaseMic(); startBrowser(true);
+    if (!cancelled && error instanceof AIAccessError) options.onNotice(error.message);
+  };
   const start = async () => {
     if (cancelled) return;
     if (options.mode !== 'ai') { startBrowser(); return; }
@@ -80,7 +83,7 @@ export function createAnswerRecognition(options: Options) {
           const result = await requestAI<{ text: string }>({ action: 'transcribe', audio, mimeType: blob.type, language: options.language || 'cs' }, controller.signal);
           accept(result.text);
           state('idle');
-        } catch { if (!cancelled) fallback(); }
+        } catch (error) { if (!cancelled) fallback(error); }
       };
       recorder.start(1000);
       timer = setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, 45000);
