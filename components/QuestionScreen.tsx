@@ -131,17 +131,18 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
       stopAllSpeech();
       setIsTTSPlaying(false);
 
+      const english = config.speechLanguage === 'en';
       let resultSpeech = "";
       if (judgeResult) {
-        const prefix = isCorrect ? "Výborně!" : "Bohužel ne.";
-        resultSpeech = `${prefix} Verdikt soudce Gem: ${judgeResult.verdict}`;
+        const prefix = english ? (isCorrect ? "Well done!" : "Unfortunately, no.") : (isCorrect ? "Výborně!" : "Bohužel ne.");
+        resultSpeech = `${prefix} ${english ? "Judge Gem's verdict" : "Verdikt soudce Gem"}: ${judgeResult.verdict}`;
       } else if (selectedAnswer !== null) {
         if (selectedAnswer === -1) {
-          resultSpeech = `Čas vypršel. Správná odpověď byla: ${question.options[question.correctIndex]}.`;
+          resultSpeech = `${english ? "Time is up. The correct answer was" : "Čas vypršel. Správná odpověď byla"}: ${question.options[question.correctIndex]}.`;
         } else {
-          const prefix = isCorrect ? "Správně!" : "Bohužel špatně.";
+          const prefix = english ? (isCorrect ? "Correct!" : "Unfortunately, that is incorrect.") : (isCorrect ? "Správně!" : "Bohužel špatně.");
           const correctText = question.options[question.correctIndex];
-          resultSpeech = `${prefix} Správná odpověď je: ${correctText}.`;
+          resultSpeech = `${prefix} ${english ? "The correct answer is" : "Správná odpověď je"}: ${correctText}.`;
         }
       }
 
@@ -149,7 +150,7 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
         speak(resultSpeech, config.ttsMode, config.ttsVoice, undefined, config.speechLanguage);
       }
     }
-  }, [selectedAnswer, isCorrect, judgeResult, config.ttsEnabled, config.mode, question]);
+  }, [selectedAnswer, isCorrect, judgeResult, config.ttsEnabled, config.ttsMode, config.ttsVoice, config.speechLanguage, config.mode, question]);
 
   useEffect(() => {
     if (!timerActive || !config.timerEnabled) return;

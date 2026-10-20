@@ -51,14 +51,14 @@ test('audio playback failure falls back to browser', async () => {
   await speak('Chybný zvuk', TTSMode.GEMINI); assert.equal(spoken.length, 1);
 });
 
-const request = body => new Request('https://quiz.example/api/ai', { method: 'POST', headers: { origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder' }, body: JSON.stringify(body) });
+const request = body => new Request('https://quiz.example/api/ai', { method: 'POST', headers: { origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder-long-enough' }, body: JSON.stringify(body) });
 test('missing server keys return 503 without any upstream request', async () => {
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder' }, () => { throw new Error('must not call'); });
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough' }, () => { throw new Error('must not call'); });
   for (const language of ['cs', 'en']) assert.equal((await handler(request({ action: 'speak', text: 'Test', language }))).status, 503);
 });
 test('Czech uses Gemini 3.8 Interactions and returns WAV audio', async () => {
   let sent;
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', GEMINI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', GEMINI_API_KEY: 'test-placeholder-long-enough' }, async (url, init) => {
     sent = { url, body: JSON.parse(init.body) };
     return Response.json({ steps: [{ type: 'model_output', content: [{ type: 'audio', data: 'UklGRg==', mime_type: 'audio/wav' }] }] });
   });
@@ -70,7 +70,7 @@ test('Czech uses Gemini 3.8 Interactions and returns WAV audio', async () => {
 });
 test('English uses OpenAI mini TTS and an OpenAI voice', async () => {
   let sent;
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', OPENAI_API_KEY: 'test-placeholder-long-enough' }, async (url, init) => {
     sent = { url, body: JSON.parse(init.body) }; return new Response(new Uint8Array([1, 2]), { headers: { 'content-type': 'audio/mpeg' } });
   });
   assert.equal((await handler(request({ action: 'speak', language: 'en', text: 'Who?', voice: 'Zephyr' }))).status, 200);
@@ -78,7 +78,7 @@ test('English uses OpenAI mini TTS and an OpenAI voice', async () => {
 });
 test('transcription uses a recorded file and plural languages hint', async () => {
   let sent;
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', OPENAI_API_KEY: 'test-placeholder-long-enough' }, async (url, init) => {
     sent = { url, form: init.body }; return Response.json({ text: 'Karel Čapek' });
   });
   const result = await handler(request({ action: 'transcribe', language: 'cs', audio: 'AQID', mimeType: 'audio/webm;codecs=opus' }));
@@ -87,7 +87,7 @@ test('transcription uses a recorded file and plural languages hint', async () =>
   assert.equal(sent.form.get('languages[]'), 'cs'); assert.equal(sent.form.get('file').name, 'answer.webm');
 });
 test('server strips upstream errors and rejects cross-origin and oversized input', async () => {
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async () => new Response('sensitive upstream diagnostic', { status: 401 }));
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', OPENAI_API_KEY: 'test-placeholder-long-enough' }, async () => new Response('sensitive upstream diagnostic', { status: 401 }));
   const result = await handler(request({ action: 'speak', text: 'Hi', language: 'en' }));
   assert.equal(result.status, 502); assert.doesNotMatch(await result.text(), /sensitive|placeholder/);
   const foreign = new Request('https://quiz.example/api/ai', { method: 'POST', headers: { origin: 'https://elsewhere.example' }, body: '{}' });
@@ -102,18 +102,18 @@ test('AI speech timeout automatically reads the question with the browser', asyn
   t.mock.timers.tick(15001); await pending; assert.equal(spoken.length, 1);
 });
 test('server times out upstream requests and returns a safe fallback status', async () => {
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, () => new Promise(() => {}), 5);
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', OPENAI_API_KEY: 'test-placeholder-long-enough' }, () => new Promise(() => {}), 5);
   assert.equal((await handler(request({ action: 'speak', text: 'Hello', language: 'en' }))).status, 504);
 });
 test('generation stays server-side and returns only the generated text', async () => {
   let sent;
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', GEMINI_API_KEY: 'test-placeholder' }, async (url, init) => {
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', GEMINI_API_KEY: 'test-placeholder-long-enough' }, async (url, init) => {
     sent = { url, body: JSON.parse(init.body) };
-    return Response.json({ candidates: [{ content: { parts: [{ thought: true, text: 'private model reasoning' }, { text: '{"correctnessScore":100}' }] } }], diagnostic: 'must not return' });
+    return Response.json({ candidates: [{ content: { parts: [{ thought: true, text: 'private model reasoning' }, { text: '{"correctnessScore":100,"verdict":"Ano"}' }] } }], diagnostic: 'must not return' });
   });
   const result = await handler(request({ action: 'generate', request: { model: 'gemini-3-flash-preview', operation: 'judge', params: { questionText: 'Kdo?', correctAnswer: 'Karel Čapek', userAnswer: 'Čapek' } } }));
   assert.match(sent.url, /generateContent$/); assert.match(sent.body.contents[0].parts[0].text, /Soudce Gem/);
-  assert.deepEqual(await result.json(), { text: '{"correctnessScore":100}' });
+  assert.deepEqual(await result.json(), { text: '{"correctnessScore":100,"verdict":"Ano"}' });
 });
 
 test('cache separates languages even when text and requested voice are identical', async () => {
@@ -123,8 +123,8 @@ test('cache separates languages even when text and requested voice are identical
 });
 test('missing transcription key and upstream errors return fallback statuses', async () => {
   const body = { action: 'transcribe', audio: 'AQID', mimeType: 'audio/webm', language: 'cs' };
-  assert.equal((await createAIHandler({ APP_ACCESS_CODE: 'test-placeholder' })(request(body))).status, 503);
-  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder', OPENAI_API_KEY: 'test-placeholder' }, async () => new Response('', { status: 500 }));
+  assert.equal((await createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough' })(request(body))).status, 503);
+  const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', OPENAI_API_KEY: 'test-placeholder-long-enough' }, async () => new Response('', { status: 500 }));
   assert.equal((await handler(request(body))).status, 502);
 });
 
@@ -139,20 +139,87 @@ test('client does not import credential-handling SDK or inject provider env vari
 });
 
 test('Vercel adapter accepts parsed, raw and buffer request bodies without exposing server configuration', async t => {
-  t.mock.property(process, 'env', { APP_ACCESS_CODE: 'test-placeholder' });
+  t.mock.property(process, 'env', { APP_ACCESS_CODE: 'test-placeholder-long-enough' });
   const { default: handler } = await import('../api/ai.ts');
   const payload = { action: 'speak', language: 'cs', text: '' };
   for (const body of [payload, JSON.stringify(payload), Buffer.from(JSON.stringify(payload))]) {
     let status, output;
     const res = { writeHead(code) { status = code; return this; }, end(data) { output = data; } };
-    await handler({ headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder' }, method: 'POST', body }, res);
+    await handler({ headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder-long-enough' }, method: 'POST', body }, res);
     assert.equal(status, 400); assert.doesNotMatch(output.toString(), /API_KEY|placeholder/);
   }
   // Three requests above plus 27 below exhaust the same module-level instance.
   for (let i = 0; i < 28; i++) {
     let status;
-    await handler({ headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder' }, method: 'POST', body: payload },
+    await handler({ headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder-long-enough' }, method: 'POST', body: payload },
       { writeHead(code) { status = code; return this; }, end() {} });
     assert.equal(status, i === 27 ? 429 : 400);
+  }
+});
+
+
+test('generation and judging get 40 seconds; speech and transcription get 12', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  for (const body of [
+    { action: 'speak', text: 'Hi', language: 'en' },
+    { action: 'transcribe', audio: 'AQID', mimeType: 'audio/webm', language: 'en' },
+    { action: 'generate', request: { model: 'gemini-3-flash-preview', operation: 'batch', params: { count: 20 } } },
+    { action: 'generate', request: { model: 'gemini-3-flash-preview', operation: 'judge', params: { questionText: 'Q', correctAnswer: 'A', userAnswer: 'A' } } },
+  ]) {
+    let done = false, aborted = false;
+    const handler = createAIHandler({ APP_ACCESS_CODE: 'test-placeholder-long-enough', OPENAI_API_KEY: 'test-placeholder', GEMINI_API_KEY: 'test-placeholder' }, async (_, init) => {
+      init.signal.addEventListener('abort', () => { aborted = true; }); return new Promise(() => {});
+    });
+    const pending = handler(request(body)).then(r => { done = true; return r; });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    const limit = body.action === 'generate' ? 40000 : 12000;
+    t.mock.timers.tick(limit - 1);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    assert.equal(done, false, body.action);
+    t.mock.timers.tick(1); assert.equal((await pending).status, 504); assert.equal(aborted, true);
+  }
+});
+test('generation client waits beyond the 40 second server deadline', async t => {
+  const { generateContent } = await import('../services/aiClient.ts');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let resolve, done = false; globalThis.fetch = () => new Promise(r => resolve = r);
+  const pending = generateContent({}).finally(() => { done = true; });
+  t.mock.timers.tick(41000);
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.equal(done, false);
+  resolve(Response.json({ text: 'ok' })); assert.equal((await pending).text, 'ok');
+});
+test('Vercel adapter returns 400 when the platform body getter throws', async () => {
+  const { default: handler } = await import('../api/ai.ts');
+  let status, output;
+  await handler({ headers: {}, method: 'POST', get body() { throw new SyntaxError('malformed JSON'); } },
+    { writeHead(code) { status = code; return this; }, end(data) { output = data; } });
+  assert.equal(status, 400); assert.doesNotMatch(String(output), /SyntaxError|malformed JSON/);
+});
+test('long AI speech plays all chunks before completing and stays within the server cap', async () => {
+  const text = Array.from({ length: 300 }, (_, i) => `Word${i}. `).join(''); let ends = 0;
+  await speak(text, TTSMode.GEMINI, 'Kore', () => ends++, 'en');
+  assert.equal(ends, 0);
+  let index = 0;
+  while (played[index]) { played[index++].onended(); for (let i = 0; i < 25; i++) await Promise.resolve(); }
+  assert.ok(requests.length > 1); assert.ok(requests.every(r => r.text.length <= 600));
+  assert.equal(requests.map(r => r.text).join(''), text); assert.equal(ends, 1); assert.equal(spoken.length, 0);
+});
+test('stopping a long prompt prevents its remaining chunks', async () => {
+  let ends = 0; await speak('Cancel chunk. '.repeat(100), TTSMode.GEMINI, 'Puck', () => ends++, 'en');
+  const onended = played[0].onended; stopAllSpeech(); onended();
+  for (let i = 0; i < 25; i++) await Promise.resolve();
+  assert.equal(requests.length, 1); assert.equal(ends, 0);
+});
+
+
+test('malformed raw JSON and streamed JSON return 400', async () => {
+  const { default: handler } = await import('../api/ai.ts');
+  for (const body of ['{', Buffer.from('{'), undefined]) {
+    let status;
+    const req = { headers: { host: 'quiz.example', origin: 'https://quiz.example', 'content-type': 'application/json', 'x-app-access': 'test-placeholder-long-enough', 'x-forwarded-for': '192.0.2.99' }, method: 'POST', body,
+      async *[Symbol.asyncIterator]() { yield Buffer.from('{'); } };
+    await handler(req, { writeHead(code) { status = code; return this; }, end() {} });
+    assert.equal(status, 400);
   }
 });

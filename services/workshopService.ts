@@ -85,5 +85,6 @@ export const refineWorkshopPrompt = async (
       globalFeedback, currentRefinement }
   });
 
-  return response.text?.trim() || currentRefinement;
+  const result: { refinement: string } = JSON.parse(response.text);
+  return result.refinement.trim() || currentRefinement;
 };

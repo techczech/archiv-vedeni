@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
-import { getAIAccessCode, setAIAccessCode } from '../services/aiClient';
+import { getAIAccessCode, setAIAccessCode, isAIAccessCode } from '../services/aiClient';
 import Button from './Button';
 import { GameConfig, AIModel, FamilyMember, Question, TTSMode, GameSource } from '../types';
 import { saveFamilyMembers, getFamilyMembers, getQuestionBank } from '../services/storageService';
@@ -327,9 +327,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             <label className="block text-sm">Kód pro AI funkce
               <input type="password" aria-label="Kód pro AI funkce" autoComplete="off" maxLength={256}
                 className="block w-full bg-slate-800 p-3 rounded-xl mt-2" value={accessCode}
-                onChange={e => { setAIAccessCode(e.target.value); setAccessCode(e.target.value); }} />
+                onChange={e => { if (isAIAccessCode(e.target.value)) { setAIAccessCode(e.target.value); setAccessCode(e.target.value); } }} />
             </label>
-            <p className="text-xs text-slate-400 mt-2">Kód získáte od správce hry. Uloží se pouze v tomto prohlížeči a odešle se s AI požadavky.</p>
+            <p className="text-xs text-slate-400 mt-2">Kód získáte od správce hry. Použijte pouze tisknutelné znaky ASCII (bez diakritiky). Uloží se pouze v tomto prohlížeči a odešle se s AI požadavky.</p>
           </Card>
 
           <Card title="Hlasový vstup a jazyk">

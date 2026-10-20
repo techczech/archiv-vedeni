@@ -10,16 +10,23 @@ export default async function handler(req: IncomingMessage & { body?: unknown },
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) if (value) headers.set(name, Array.isArray(value) ? value.join(',') : value);
   let body: string;
-  if (req.body !== undefined) body = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-  else {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const chunk of req) {
-      size += Buffer.byteLength(chunk);
-      if (size > 3_000_000) { res.writeHead(413).end(); return; }
-      chunks.push(Buffer.from(chunk));
+  try {
+    const parsedBody = req.body;
+    if (parsedBody !== undefined) body = Buffer.isBuffer(parsedBody) ? parsedBody.toString('utf8') : typeof parsedBody === 'string' ? parsedBody : JSON.stringify(parsedBody);
+    else {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += Buffer.byteLength(chunk);
+        if (size > 3_000_000) { res.writeHead(413).end(); return; }
+        chunks.push(Buffer.from(chunk));
+      }
+      body = Buffer.concat(chunks).toString('utf8');
     }
-    body = Buffer.concat(chunks).toString('utf8');
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    return;
   }
   const protocol = headers.get('x-forwarded-proto') === 'http' ? 'http' : 'https';
   const request = new Request(`${protocol}://${headers.get('host')}/api/ai`, {

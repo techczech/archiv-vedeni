@@ -146,5 +146,5 @@ Navrhni krátkou (max 2-3 věty), údernou instrukci pro AI generátor, která s
 Cílem je eliminovat chyby z negativních příkladů a posílit kvality z pozitivních příkladů.
 Pište v češtině.
 
-Vrať pouze text nové instrukce.
+Vrať JSON s jediným polem "refinement": text nové instrukce, nejvýše 1000 znaků.
 `;

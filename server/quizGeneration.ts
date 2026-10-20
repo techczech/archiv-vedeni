@@ -36,9 +36,15 @@ const judgeSchema: Schema = {
   properties: {
     correctnessScore: { type: Type.NUMBER },
     bonusPoints: { type: Type.INTEGER },
-    verdict: { type: Type.STRING },
+    verdict: { type: Type.STRING, maxLength: '500' },
   },
   required: ["correctnessScore", "bonusPoints", "verdict"],
+};
+
+const refinementSchema: Schema = {
+  type: Type.OBJECT,
+  properties: { refinement: { type: Type.STRING, maxLength: '1000' } },
+  required: ['refinement'],
 };
 
 const evaluationSchema: Schema = {
@@ -144,6 +150,7 @@ export function buildQuizGeneration(value: unknown) {
         const n = object(v, ['question', 'feedback']); return { question: shortExample(n.question), feedback: text(n.feedback, 500, true) };
       });
       contents = PROMPT_REFINEMENT_PROMPT(results, positives, negatives, text(p.globalFeedback, 1000, true), text(p.currentRefinement, 1000, true));
+      schema = refinementSchema; temperature = 0.2;
       break;
     }
     default: invalid();
@@ -151,5 +158,16 @@ export function buildQuizGeneration(value: unknown) {
   // Aggregate cap includes escaped parameters and the fixed instructions.
   if (contents.length > 32000) invalid();
   return { model, contents, config: { responseMimeType: schema ? 'application/json' : 'text/plain',
-    ...(schema ? { responseSchema: schema } : {}), temperature, maxOutputTokens: r.operation === 'batch' ? 8192 : 2048 } };
+    ...(schema ? { responseSchema: schema } : {}), temperature, maxOutputTokens: r.operation === 'batch' ? 8192 : r.operation === 'workshopRefinement' ? 1024 : r.operation === 'judge' ? 512 : 2048 } };
+}
+
+// Provider schemas guide generation; enforce the bounds again before returning data.
+export function validateGenerationOutput(operation: unknown, output: string): void {
+  if (operation === 'judge') {
+    const result = object(JSON.parse(output), ['correctnessScore', 'bonusPoints', 'verdict']);
+    text(result.verdict, 500);
+  } else if (operation === 'workshopRefinement') {
+    const result = object(JSON.parse(output), ['refinement']);
+    text(result.refinement, 1000);
+  }
 }

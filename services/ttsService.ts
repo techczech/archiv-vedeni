@@ -64,30 +64,49 @@ export const speak = async (text: string, mode: TTSMode, voice = 'Zephyr', onEnd
     try { window.speechSynthesis.speak(utterance); } catch { finish(); }
   };
   if (mode === TTSMode.BROWSER) { browserSpeech(); return; }
-  const controller = new AbortController();
-  pending = controller;
-  const key = JSON.stringify([text, voice, language]);
-  try {
-    let result = audioCache.get(key);
-    if (!result) {
-      result = await requestAI<AudioResult>({ action: 'speak', text, voice, language }, controller.signal);
-      if (!result.audio || !['audio/wav', 'audio/mpeg'].includes(result.mimeType)) throw new Error('Invalid audio');
-      if (id !== generation) return;
-      // A bounded, session-only cache avoids persisting players' names or growing indefinitely.
-      if (audioCache.size >= 32) audioCache.delete(audioCache.keys().next().value!);
-      audioCache.set(key, result);
+  // Split only AI speech: the server accepts at most 600 characters per request.
+  const chunks: string[] = [];
+  for (let offset = 0; offset < text.length;) {
+    let end = Math.min(offset + 600, text.length);
+    if (end < text.length) {
+      const boundary = text.lastIndexOf(' ', end - 1);
+      if (boundary > offset) end = boundary + 1;
+      else if (/[\uD800-\uDBFF]/.test(text[end - 1])) end--;
     }
-    if (id !== generation) return;
-    const bytes = Uint8Array.from(atob(result.audio), char => char.charCodeAt(0));
-    currentURL = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
-    const audio = new Audio(currentURL);
-    currentAudio = audio;
-    audio.onended = () => { releaseAudio(); finish(); };
-    audio.onerror = () => { if (id === generation) { audioCache.delete(key); releaseAudio(); browserSpeech(); } };
-    await audio.play();
-  } catch {
-    if (id === generation) { audioCache.delete(key); releaseAudio(); browserSpeech(); }
-  } finally {
-    if (pending === controller) pending = null;
+    chunks.push(text.slice(offset, end)); offset = end;
   }
+  const playChunk = async (index: number): Promise<void> => {
+    if (id !== generation) return;
+    if (index >= chunks.length) { finish(); return; }
+    const controller = new AbortController();
+    pending = controller;
+    const key = JSON.stringify([chunks[index], voice, language]);
+    try {
+      let result = audioCache.get(key);
+      if (!result) {
+        result = await requestAI<AudioResult>({ action: 'speak', text: chunks[index], voice, language }, controller.signal);
+        if (!result.audio || !['audio/wav', 'audio/mpeg'].includes(result.mimeType)) throw new Error('Invalid audio');
+        if (id !== generation) return;
+        // A bounded, session-only cache avoids persisting players' names or growing indefinitely.
+        if (audioCache.size >= 32) audioCache.delete(audioCache.keys().next().value!);
+        audioCache.set(key, result);
+      }
+      if (id !== generation) return;
+      const bytes = Uint8Array.from(atob(result.audio), char => char.charCodeAt(0));
+      currentURL = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
+      const audio = new Audio(currentURL);
+      currentAudio = audio;
+      audio.onended = () => {
+        if (id !== generation) return;
+        releaseAudio(); void playChunk(index + 1);
+      };
+      audio.onerror = () => { if (id === generation) { audioCache.delete(key); releaseAudio(); browserSpeech(); } };
+      await audio.play();
+    } catch {
+      if (id === generation) { audioCache.delete(key); releaseAudio(); browserSpeech(); }
+    } finally {
+      if (pending === controller) pending = null;
+    }
+  };
+  await playChunk(0);
 };

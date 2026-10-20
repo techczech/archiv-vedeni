@@ -133,6 +133,9 @@ test('Settings saves the access code locally and restores it on remount', async 
   const input = renderer.root.findByProps({ 'aria-label': 'Kód pro AI funkce' });
   assert.equal(input.props.type, 'password');
   await act(async () => input.props.onChange({ target: { value: 'test-placeholder' } }));
+  await act(async () => input.props.onChange({ target: { value: 'neplatný' } }));
+  assert.equal(input.props.value, 'test-placeholder');
+  assert.match(JSON.stringify(renderer.toJSON()), /ASCII/);
   await act(async () => renderer.unmount());
   await act(async () => { renderer = create(React.createElement(SettingsPage, props)); });
   assert.equal(renderer.root.findByProps({ 'aria-label': 'Kód pro AI funkce' }).props.value, 'test-placeholder');
@@ -148,4 +151,28 @@ test('app displays the access-code notice after an AI 401 event', async () => {
   await act(async () => { window.dispatchEvent(new Event('ai-access-required')); });
   assert.match(renderer.root.findByProps({ role: 'alert' }).children.join(' '), /[Kk]ód.*Nastavení/);
   await act(async () => renderer.unmount());
+});
+
+
+test('English voice mode reads English result phrases for answers, timeout and judging', async () => {
+  environment(); const spoken = [];
+  window.speechSynthesis = { cancel() {}, getVoices: () => [], speak: u => { spoken.push(u); u.onend?.(); } };
+  globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+  for (const result of [
+    { selectedAnswer: 0, isCorrect: true, expected: /Correct! The correct answer is:/ },
+    { selectedAnswer: 1, isCorrect: false, expected: /Unfortunately, that is incorrect/ },
+    { selectedAnswer: -1, isCorrect: false, expected: /Time is up/ },
+    { selectedAnswer: null, isCorrect: true, judgeResult: { scorePercentage: 100, bonusPoints: 0, verdict: 'Yes', userAnswer: 'A' }, expected: /Well done! Judge Gem/ },
+    { selectedAnswer: null, isCorrect: false, judgeResult: { scorePercentage: 0, bonusPoints: 0, verdict: 'No', userAnswer: 'B' }, expected: /Unfortunately, no. Judge Gem/ },
+  ]) {
+    const props = { question: { id: 'english', text: 'Who?', options: ['A','B','C','D'], correctIndex: 0, category: Category.ARTS, difficulty: Difficulty.EASY },
+      config: { ...DEFAULT_CONFIG, ttsEnabled: true, timerEnabled: false, speechLanguage: 'en' },
+      currentPlayer: { name: 'Test', lifelines: {}, completedCategories: [], challengedPlayerIds: [], score: 0 },
+      hiddenOptions: [], hintRevealed: false, onAnswer() {}, onManualVerdict() {}, onNext() {}, onUseLifeline() {} };
+    let renderer;
+    await act(async () => { renderer = create(React.createElement(QuestionScreen, { ...props, selectedAnswer: null, isCorrect: null })); });
+    await act(async () => renderer.update(React.createElement(QuestionScreen, { ...props, ...result })));
+    assert.match(spoken.at(-1).text, result.expected); assert.equal(spoken.at(-1).lang, 'en-GB');
+    await act(async () => renderer.unmount());
+  }
 });

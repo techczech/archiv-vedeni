@@ -1,5 +1,5 @@
 
-import { generateContent } from "./aiClient";
+import { generateContent, AIRateLimitError } from "./aiClient";
 import { Category, Question, Difficulty, AIModel } from "../types";
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -12,6 +12,7 @@ async function withRetry<T>(fn: (currentModel: AIModel) => Promise<T>, initialMo
     try {
       return await fn(currentModel);
     } catch (error: any) {
+      if (error instanceof AIRateLimitError) throw error;
       const errorStr = JSON.stringify(error);
       const isRateLimit = errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('429');
       
