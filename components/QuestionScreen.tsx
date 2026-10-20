@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Question, GameConfig, LifelineType, Player, GameMode } from '../types';
 import { CATEGORY_COLORS, CATEGORY_ICONS, DIFFICULTY_POINTS, LIFELINE_ICONS } from '../constants';
 import { speak, stopAllSpeech, playWarningBeep } from '../services/ttsService';
+import { createAnswerRecognition, RecognitionState } from '../services/recognitionService';
 import Button from './Button';
 import Card from './Card';
 import Counter from './Counter';
@@ -50,8 +51,11 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
   const [isTTSPlaying, setIsTTSPlaying] = useState(false);
   
   const [textAnswer, setTextAnswer] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const [recognitionState, setRecognitionState] = useState<RecognitionState>('idle');
+  const [recognitionNotice, setRecognitionNotice] = useState('');
+  const recognitionRef = useRef<ReturnType<typeof createAnswerRecognition> | null>(null);
+  const isListening = recognitionState === 'listening';
+  const cancelRecognition = () => { recognitionRef.current?.cancel(); recognitionRef.current = null; setRecognitionState('idle'); };
   const resultReadRef = useRef(false);
 
   const isHardMode = currentPlayer.isHardMode || config.mode === GameMode.JUDGE;
@@ -60,9 +64,10 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
     setIsTTSPlaying(true);
     setTimerActive(false);
     
-    let ttsText = `Otázka pro hráče ${currentPlayer.name}: ${question.text}`;
+    const english = config.speechLanguage === 'en';
+    let ttsText = english ? `Question for ${currentPlayer.name}: ${question.text}` : `Otázka pro hráče ${currentPlayer.name}: ${question.text}`;
     if (!isHardMode) {
-      ttsText += ". Možnosti jsou: " + question.options.map((opt, i) => `${String.fromCharCode(65 + i)}, ${opt}`).join(". ");
+      ttsText += (english ? ". The options are: " : ". Možnosti jsou: ") + question.options.map((opt, i) => `${String.fromCharCode(65 + i)}, ${opt}`).join(". ");
     }
     
     speak(ttsText, config.ttsMode, config.ttsVoice, () => {
@@ -70,7 +75,7 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
       if (config.timerEnabled && selectedAnswer === null && !judgeResult && !isJudging) {
         setTimerActive(true);
       }
-    });
+    }, config.speechLanguage);
   };
 
   const toggleTTS = () => {
@@ -92,6 +97,7 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
   };
 
   const handleJudgeSubmit = () => {
+    cancelRecognition();
     stopAllSpeech();
     setIsTTSPlaying(false);
     onAnswer(textAnswer || "Nevím");
@@ -113,7 +119,7 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
     }
 
     return () => stopAllSpeech();
-  }, [question.id, config.ttsEnabled, config.ttsMode, config.ttsVoice, config.timerDuration, config.timerEnabled, currentPlayer.name]);
+  }, [question.id, config.ttsEnabled, config.ttsMode, config.ttsVoice, config.speechLanguage, config.timerDuration, config.timerEnabled, currentPlayer.name]);
 
   useEffect(() => {
     if (!config.ttsEnabled || resultReadRef.current) return;
@@ -140,7 +146,7 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
       }
 
       if (resultSpeech) {
-        speak(resultSpeech, config.ttsMode, config.ttsVoice);
+        speak(resultSpeech, config.ttsMode, config.ttsVoice, undefined, config.speechLanguage);
       }
     }
   }, [selectedAnswer, isCorrect, judgeResult, config.ttsEnabled, config.mode, question]);
@@ -179,32 +185,26 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
   }, [timeLeft, selectedAnswer, onAnswer, config.timerEnabled, config.mode, judgeResult, isJudging, timerActive, isHardMode]);
 
   useEffect(() => {
-    if (isHardMode && 'webkitSpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.lang = 'cs-CZ';
-      recognitionRef.current.interimResults = false;
-
-      recognitionRef.current.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setTextAnswer(prev => prev ? prev + ' ' + transcript : transcript);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onerror = () => setIsListening(false);
-      recognitionRef.current.onend = () => setIsListening(false);
-    }
-  }, [isHardMode]);
+    cancelRecognition();
+    setRecognitionNotice('');
+    return () => { recognitionRef.current?.cancel(); recognitionRef.current = null; };
+  }, [question.id, isHardMode, config.recognitionMode, config.speechLanguage, selectedAnswer, judgeResult, isJudging]);
 
   const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      recognitionRef.current?.start();
-      setIsListening(true);
-    }
+    if (recognitionState === 'transcribing') return;
+    if (isListening) { recognitionRef.current?.stop(); return; }
+    stopAllSpeech();
+    setIsTTSPlaying(false);
+    if (config.timerEnabled) setTimerActive(true);
+    recognitionRef.current?.cancel();
+    setRecognitionNotice('');
+    const session = createAnswerRecognition({
+      mode: config.recognitionMode || 'browser', language: config.speechLanguage || 'cs',
+      onTranscript: transcript => setTextAnswer(previous => previous ? `${previous} ${transcript}` : transcript),
+      onState: setRecognitionState, onNotice: setRecognitionNotice,
+    });
+    recognitionRef.current = session;
+    void session.start();
   };
 
   const hasAnswered = selectedAnswer !== null || !!judgeResult;
@@ -345,26 +345,32 @@ const QuestionScreen: React.FC<QuestionScreenProps> = ({
                    onClick={toggleListening}
                    className={`absolute bottom-4 right-4 p-3 rounded-xl transition-all ${isListening ? 'bg-red-600 text-white animate-pulse shadow-lg shadow-red-900/50' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}
                    title="Hlasový vstup"
+                   aria-label={isListening ? 'Ukončit nahrávání' : 'Hlasový vstup'}
+                   aria-pressed={isListening}
+                   disabled={recognitionState === 'transcribing'}
                 >
                    <span className="material-icons">{isListening ? 'mic' : 'mic_none'}</span>
                 </button>
              </div>
              
+             <p role="status" className="text-sm text-slate-400">
+               {recognitionState === 'transcribing' ? 'Přepisuji odpověď…' : isListening ? 'Poslouchám. Dalším stiskem mikrofonu ukončíte nahrávání.' : recognitionNotice}
+             </p>
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Button onClick={handleJudgeSubmit} variant="accent" className="py-4 text-lg">
+                <Button disabled={recognitionState === 'transcribing'} onClick={handleJudgeSubmit} variant="accent" className="py-4 text-lg">
                    Posoudit AI (Gem)
                 </Button>
                 
                 <div className="flex gap-2">
                    <button 
-                      onClick={() => onManualVerdict(true)}
+                      onClick={() => { cancelRecognition(); onManualVerdict(true); }}
                       className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl flex items-center justify-center gap-2 font-bold uppercase tracking-widest text-xs transition-all active:scale-95"
                    >
                       <span className="material-icons">check_circle</span>
                       Správně (Manuál)
                    </button>
                    <button 
-                      onClick={() => onManualVerdict(false)}
+                      onClick={() => { cancelRecognition(); onManualVerdict(false); }}
                       className="flex-1 bg-red-700 hover:bg-red-600 text-white rounded-xl flex items-center justify-center gap-2 font-bold uppercase tracking-widest text-xs transition-all active:scale-95"
                    >
                       <span className="material-icons">cancel</span>

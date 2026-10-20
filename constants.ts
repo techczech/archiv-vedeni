@@ -56,7 +56,9 @@ export const DEFAULT_CONFIG: GameConfig = {
   totalRounds: 5,
   ttsEnabled: false,
   ttsMode: TTSMode.BROWSER,
-  ttsVoice: 'Zephyr'
+  ttsVoice: 'Zephyr',
+  recognitionMode: 'browser',
+  speechLanguage: 'cs'
 };
 
 export const LIFELINE_ICONS: Record<LifelineType, string> = {

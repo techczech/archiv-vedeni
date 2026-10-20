@@ -51,17 +51,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     setMembers(getFamilyMembers());
     
     const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices().filter(v => 
-        v.lang.toLowerCase().includes('cs') || v.lang.toLowerCase().includes('czech')
+      const voices = (window.speechSynthesis?.getVoices() || []).filter(v =>
+        v.lang.toLowerCase().startsWith(config.speechLanguage || 'cs')
       );
       setAvailableBrowserVoices(voices);
     };
 
     loadVoices();
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = loadVoices;
+    if (window.speechSynthesis) {
+      window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
     }
-  }, []);
+    return () => window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices);
+  }, [config.speechLanguage]);
 
   const saveMembers = (updated: FamilyMember[]) => {
     setMembers(updated);
@@ -110,14 +111,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     const existingNames = new Set(members.map(m => m.name));
     const filtered = newOnes.filter(n => !existingNames.has(n.name));
     saveMembers([...members, ...filtered]);
-  };
-
-  const openKeyDialog = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-    } else {
-      alert("Tato funkce je dostupná pouze v prostředí AI Studio.");
-    }
   };
 
   const copyAIPrompt = () => {
@@ -328,6 +321,25 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
              </div>
           </Card>
 
+          <Card title="Hlasový vstup a jazyk">
+            <div className="space-y-4">
+              <label className="block text-sm">Jazyk hlasu a odpovědí
+                <select aria-label="Jazyk hlasu a odpovědí" className="block w-full bg-slate-800 p-3 rounded-xl mt-2"
+                  value={config.speechLanguage || 'cs'} onChange={e => onUpdateConfig({ ...config, speechLanguage: e.target.value as 'cs' | 'en', ttsVoice: e.target.value === 'en' ? 'coral' : 'Zephyr' })}>
+                  <option value="cs">Čeština</option><option value="en">Angličtina</option>
+                </select>
+              </label>
+              <label className="block text-sm">Rozpoznávání odpovědí
+                <select aria-label="Rozpoznávání odpovědí" className="block w-full bg-slate-800 p-3 rounded-xl mt-2"
+                  value={config.recognitionMode || 'browser'} onChange={e => onUpdateConfig({ ...config, recognitionMode: e.target.value as 'browser' | 'ai' })}>
+                  <option value="browser">Prohlížeč</option><option value="ai">AI rozpoznávání</option>
+                </select>
+              </label>
+              <p className="text-xs text-slate-400">AI odešle nahrávku odpovědi do OpenAI. Nahrávání ukončíte dalším stiskem mikrofonu (nejvýše 45 sekund). Přepis můžete před odesláním upravit. Při chybě se spustí rozpoznávání prohlížeče, pokud je dostupné.</p>
+              <p className="text-xs text-slate-400">Změna jazyka nepřekládá otázky ani rozhraní.</p>
+            </div>
+          </Card>
+
           <Card title="Předčítání (TTS)">
              <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-slate-800 rounded-xl border border-slate-700 shadow-inner">
@@ -350,17 +362,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                           <button 
                             key={m} 
                             onClick={() => {
-                               const firstVoice = m === TTSMode.GEMINI ? GEMINI_VOICES[0] : (availableBrowserVoices[0]?.name || 'default');
+                               const firstVoice = m === TTSMode.GEMINI ? (config.speechLanguage === 'en' ? 'coral' : GEMINI_VOICES[0]) : (availableBrowserVoices[0]?.name || 'default');
                                onUpdateConfig({ ...config, ttsMode: m, ttsVoice: firstVoice });
                             }} 
                             className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden ${config.ttsMode === m ? 'bg-amber-900/20 border-amber-500 shadow-lg ring-1 ring-amber-500' : 'bg-slate-800 border-slate-700 hover:border-slate-500 opacity-60'}`}
                           >
                             <div className="flex justify-between items-center">
-                              <span className="font-bold text-slate-100">{m}</span>
+                              <span className="font-bold text-slate-100">{m === TTSMode.BROWSER ? 'Prohlížeč' : 'AI hlas'}</span>
                               {config.ttsMode === m && <span className="material-icons text-amber-500 text-sm">check_circle</span>}
                             </div>
                             <div className="text-[10px] text-slate-400 mt-1">
-                              {m === TTSMode.BROWSER ? "Využívá vestavěné hlasy systému (včetně Siri na iPadu)." : "Prémiové hlasy Google AI (vyžaduje internet)."}
+                              {m === TTSMode.BROWSER ? "Využívá vestavěné hlasy systému (včetně Siri na iPadu)." : "Hlas vytváří AI. Čeština: Google, angličtina: OpenAI. Při chybě se použije prohlížeč."}
                             </div>
                           </button>
                         ))}
@@ -373,7 +385,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700">
                            {config.ttsMode === TTSMode.GEMINI ? (
-                              GEMINI_VOICES.map(v => (
+                              (config.speechLanguage === 'en' ? ['coral', 'alloy', 'nova', 'sage'] : GEMINI_VOICES).map(v => (
                                  <button 
                                     key={v} 
                                     onClick={() => onUpdateConfig({ ...config, ttsVoice: v })}
@@ -583,12 +595,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   ))}
                 </div>
               </div>
-              <div className="pt-2">
-                 <Button onClick={openKeyDialog} variant="secondary" fullWidth className="py-3">
-                    <span className="material-icons text-sm mr-2">key</span>
-                    Správa API Klíče
-                 </Button>
-              </div>
+              <p className="text-xs text-slate-400">AI je připojena přes server Archivu. API klíče spravuje provozovatel na serveru.</p>
             </div>
           </Card>
           <Card title="Export / Import Zálohy" className="border-emerald-500/30">

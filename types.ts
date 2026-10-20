@@ -152,6 +152,8 @@ export interface GameConfig {
   ttsEnabled: boolean;
   ttsMode: TTSMode;
   ttsVoice: string;
+  recognitionMode?: 'browser' | 'ai';
+  speechLanguage?: 'cs' | 'en';
 }
 
 export type GameStatus = 'ACTIVE' | 'COMPLETED' | 'ABANDONED' | 'SUSPENDED';

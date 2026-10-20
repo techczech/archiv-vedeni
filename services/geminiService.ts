@@ -1,5 +1,6 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import type { Schema } from "@google/genai";
+import { generateContent, SchemaType as Type } from "./aiClient";
 import { Category, Question, Difficulty, AIModel } from "../types";
 import { getGenerationPrompt, getBatchGenerationPrompt, getJudgePrompt } from "../prompts";
 
@@ -67,14 +68,11 @@ export const generateQuestion = async (
   childMode: boolean = false,
   preferredModel: AIModel = AIModel.FLASH
 ): Promise<Question> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("Chybí API klíč.");
 
   return withRetry(async (modelToUse) => {
-    const ai = new GoogleGenAI({ apiKey });
     const prompt = getGenerationPrompt(category, difficulty, avoidEntities, childMode);
 
-    const response = await ai.models.generateContent({
+    const response = await generateContent({
       model: modelToUse, 
       contents: prompt,
       config: {
@@ -107,14 +105,11 @@ export const generateBatchQuestions = async (
   count: number = 10,
   preferredModel: AIModel = AIModel.FLASH
 ): Promise<Question[]> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("Chybí API klíč.");
 
   return withRetry(async (modelToUse) => {
-    const ai = new GoogleGenAI({ apiKey });
     const prompt = getBatchGenerationPrompt(count);
 
-    const response = await ai.models.generateContent({
+    const response = await generateContent({
       model: modelToUse, 
       contents: prompt,
       config: {
@@ -148,14 +143,11 @@ export const evaluateAnswer = async (
   userAnswer: string,
   preferredModel: AIModel = AIModel.FLASH
 ): Promise<{ correctnessScore: number; bonusPoints: number; verdict: string }> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("Chybí API klíč.");
 
   return withRetry(async (modelToUse) => {
-    const ai = new GoogleGenAI({ apiKey });
     const prompt = getJudgePrompt(question.text, question.options[question.correctIndex], userAnswer);
 
-    const response = await ai.models.generateContent({
+    const response = await generateContent({
       model: modelToUse,
       contents: prompt,
       config: {

@@ -35,13 +35,13 @@ Hra bez nápověd a možností.
 
 ## 🏗️ Technická Architektura
 
-Aplikace je postavena jako **Client-Side SPA (Single Page Application)** s důrazem na moderní webové standardy bez nutnosti složitého sestavování (No-Build / Low-Build).
+Aplikace je postavena jako **React SPA sestavovaná pomocí Vite**. AI požadavky vyřizuje serverová funkce `/api/ai`; klíče poskytovatelů se neposílají do prohlížeče.
 
 ### Tech Stack
-- **Core**: React 19 (načítáno via ESM Import Maps).
+- **Core**: React 19, Vite.
 - **Jazyk**: TypeScript (TSX).
 - **Styling**: Tailwind CSS (CDN runtime pro rapid prototyping).
-- **AI Integrace**: Google GenAI SDK (`@google/genai`) pro Gemini modely.
+- **AI Integrace**: Serverová funkce pro Gemini a OpenAI; prohlížeč používá pouze `/api/ai`.
 - **Persistence**: `LocalStorage` pro ukládání stavu hry, historie a banky otázek.
 
 ### Struktura Souborů
@@ -73,26 +73,29 @@ Unikátní součástí aplikace je **Dílna Archiváře**, která využívá mul
 
 ## 🚀 Nasazení a Spuštění
 
-Aplikace nevyžaduje Node.js build proces (Webpack/Vite) pro vývoj, jelikož využívá nativní ES Moduly v prohlížeči.
+### Lokální spuštění a ověření
 
-### Požadavky
-- Moderní prohlížeč (Chrome/Edge/Safari) s podporou ES Modules.
-- Platný **Google Gemini API Key**.
+Použijte Node.js 22.15 nebo novější a npm:
 
-### Lokální Spuštění
-1. Otevřete kořenovou složku projektu.
-2. Spusťte libovolný statický server (např. `python3 -m http.server`, `npx serve`, nebo Live Server ve VS Code).
-3. Otevřete `localhost` v prohlížeči.
-4. V nastavení aplikace (nebo přes dialogové okno AI Studia) zadejte API klíč.
+```sh
+npm ci
+npm run dev
+npm test
+npm run typecheck
+npm run build
+```
 
-### Statické Nasazení (Deploy)
-Aplikaci lze nasadit na libovolný statický hosting (GitHub Pages, Vercel, Netlify, Firebase Hosting).
+Samotný Vite spouští frontend. Bez serverové funkce funguje místní archiv a hlas prohlížeče; zvolený AI hlas se při chybě vrátí k prohlížeči.
 
-1. Nahrajte celý obsah složky na hosting.
-2. Ujistěte se, že `index.html` je vstupní bod.
-3. **Konfigurace API**:
-   - Aplikace očekává, že prostředí poskytne API klíč (`process.env.API_KEY`).
-   - V případě statického hostingu bez injekce proměnných musí uživatel zadat klíč ručně v sekci **Nastavení -> AI & Systém -> Správa API Klíče**.
+### Nasazení na Vercel
+
+Nasaďte celý projekt včetně `api/`, `server/` a `vercel.json`. Build příkaz je `npm run build`, výstupní složka `dist`. Samostatné nahrání složky `dist` na statický hosting AI funkce nezpřístupní.
+
+V serverovém prostředí Vercelu nastavte pouze názvy tajných proměnných `GEMINI_API_KEY` a `OPENAI_API_KEY`. Klíče nezadávejte do aplikace ani do veřejných proměnných Vite.
+
+V **Nastavení → Parametry Hry** jsou volby **Prohlížeč / AI hlas**, **Prohlížeč / AI rozpoznávání** a jazyk hlasu. Výchozí je prohlížeč a čeština. AI přepis se vloží do odpovědi, kterou lze před posouzením upravit. Při selhání AI rozpoznávání je třeba odpověď zopakovat do mikrofonu prohlížeče, pokud jej prohlížeč podporuje.
+
+Podrobný přehled změn, ověření a omezení je v [předávací zprávě k AI hlasům](docs/report-ai-voices.md).
 
 ---
 

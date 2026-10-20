@@ -1,0 +1,27 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createAIHandler } from '../server/aiHandler';
+
+// Vercel's Node function adapter; kept separate from the provider logic for offline tests.
+export default async function handler(req: IncomingMessage & { body?: unknown }, res: ServerResponse) {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) if (value) headers.set(name, Array.isArray(value) ? value.join(',') : value);
+  let body: string;
+  if (req.body !== undefined) body = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  else {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += Buffer.byteLength(chunk);
+      if (size > 3_000_000) { res.writeHead(413).end(); return; }
+      chunks.push(Buffer.from(chunk));
+    }
+    body = Buffer.concat(chunks).toString('utf8');
+  }
+  const protocol = headers.get('x-forwarded-proto') === 'http' ? 'http' : 'https';
+  const request = new Request(`${protocol}://${headers.get('host')}/api/ai`, {
+    method: req.method, headers, ...(req.method !== 'GET' && req.method !== 'HEAD' ? { body } : {}),
+  });
+  const response = await createAIHandler({ GEMINI_API_KEY: process.env.GEMINI_API_KEY, OPENAI_API_KEY: process.env.OPENAI_API_KEY })(request);
+  res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+  res.end(Buffer.from(await response.arrayBuffer()));
+}

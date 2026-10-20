@@ -1,153 +1,93 @@
+import { TTSMode } from '../types';
+import { requestAI } from './aiClient';
 
-import { GoogleGenAI, Modality } from "@google/genai";
-import { TTSMode } from "../types";
-
+type AudioResult = { audio: string; mimeType: string };
+const audioCache = new Map<string, AudioResult>();
+let generation = 0;
+let pending: AbortController | null = null;
+let currentAudio: HTMLAudioElement | null = null;
+let currentURL: string | null = null;
 let audioContext: AudioContext | null = null;
-let currentSource: AudioBufferSourceNode | null = null;
 
-function getAudioContext() {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+function releaseAudio() {
+  if (currentAudio) {
+    currentAudio.onended = null;
+    currentAudio.onerror = null;
+    currentAudio.pause();
+    currentAudio = null;
   }
-  return audioContext;
-}
-
-function decodeBase64(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
+  if (currentURL) URL.revokeObjectURL(currentURL);
+  currentURL = null;
 }
 
 export const stopAllSpeech = () => {
-  if (window.speechSynthesis) {
-    window.speechSynthesis.cancel();
-  }
-  if (currentSource) {
-    try {
-      currentSource.stop();
-    } catch (e) {
-      // already stopped
-    }
-    currentSource = null;
-  }
+  generation++;
+  pending?.abort();
+  pending = null;
+  if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
+  releaseAudio();
 };
 
 export const playWarningBeep = () => {
-  const ctx = getAudioContext();
+  if (!audioContext) audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const ctx = audioContext;
+  void ctx.resume();
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-
   osc.type = 'sine';
-  osc.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
+  osc.frequency.setValueAtTime(880, ctx.currentTime);
   gain.gain.setValueAtTime(0.1, ctx.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-
   osc.connect(gain);
   gain.connect(ctx.destination);
-
   osc.start();
   osc.stop(ctx.currentTime + 0.2);
 };
 
-export const speak = async (text: string, mode: TTSMode, voice: string = 'Zephyr', onEnd?: () => void): Promise<void> => {
+export const speak = async (text: string, mode: TTSMode, voice = 'Zephyr', onEnd?: () => void, language = 'cs'): Promise<void> => {
   stopAllSpeech();
-  
-  if (mode === TTSMode.BROWSER) {
-    if (!window.speechSynthesis) {
-      onEnd?.();
-      return;
-    }
+  const id = generation;
+  let ended = false;
+  const finish = () => { if (id === generation && !ended) { ended = true; onEnd?.(); } };
+  let usingBrowser = false;
+  const browserSpeech = () => {
+    if (id !== generation || usingBrowser) return;
+    usingBrowser = true;
+    if (!window.speechSynthesis) { finish(); return; }
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'cs-CZ';
-    utterance.rate = 1.0;
-    
-    // Improved voice lookup: check for exact name match first
+    utterance.lang = language.startsWith('en') ? 'en-GB' : 'cs-CZ';
     const voices = window.speechSynthesis.getVoices();
-    const exactVoice = voices.find(v => v.name === voice);
-    if (exactVoice) {
-      utterance.voice = exactVoice;
-    } else {
-      // Fallback: any czech voice
-      const fallbackVoice = voices.find(v => v.lang.startsWith('cs'));
-      if (fallbackVoice) utterance.voice = fallbackVoice;
+    utterance.voice = voices.find(v => v.name === voice && v.lang.startsWith(language))
+      || voices.find(v => v.lang.startsWith(language)) || null;
+    utterance.onend = finish;
+    utterance.onerror = finish;
+    try { window.speechSynthesis.speak(utterance); } catch { finish(); }
+  };
+  if (mode === TTSMode.BROWSER) { browserSpeech(); return; }
+  const controller = new AbortController();
+  pending = controller;
+  const key = JSON.stringify([text, voice, language]);
+  try {
+    let result = audioCache.get(key);
+    if (!result) {
+      result = await requestAI<AudioResult>({ action: 'speak', text, voice, language }, controller.signal);
+      if (!result.audio || !['audio/wav', 'audio/mpeg'].includes(result.mimeType)) throw new Error('Invalid audio');
+      if (id !== generation) return;
+      // A bounded, session-only cache avoids persisting players' names or growing indefinitely.
+      if (audioCache.size >= 32) audioCache.delete(audioCache.keys().next().value!);
+      audioCache.set(key, result);
     }
-
-    utterance.onend = () => onEnd?.();
-    utterance.onerror = () => onEnd?.();
-    window.speechSynthesis.speak(utterance);
-  } else {
-    // Gemini TTS
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      console.error("Missing API key for Gemini TTS");
-      onEnd?.();
-      return;
-    }
-
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: `V češtině: ${text}` }] }], 
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: voice },
-            },
-          },
-        },
-      });
-
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) {
-        onEnd?.();
-        return;
-      }
-
-      const ctx = getAudioContext();
-      const audioBuffer = await decodeAudioData(
-        decodeBase64(base64Audio),
-        ctx,
-        24000,
-        1,
-      );
-
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      source.onended = () => {
-        if (currentSource === source) currentSource = null;
-        onEnd?.();
-      };
-      currentSource = source;
-      source.start();
-    } catch (error) {
-      console.error("Gemini TTS Error:", error);
-      onEnd?.();
-    }
+    if (id !== generation) return;
+    const bytes = Uint8Array.from(atob(result.audio), char => char.charCodeAt(0));
+    currentURL = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
+    const audio = new Audio(currentURL);
+    currentAudio = audio;
+    audio.onended = () => { releaseAudio(); finish(); };
+    audio.onerror = () => { if (id === generation) { audioCache.delete(key); releaseAudio(); browserSpeech(); } };
+    await audio.play();
+  } catch {
+    if (id === generation) { audioCache.delete(key); releaseAudio(); browserSpeech(); }
+  } finally {
+    if (pending === controller) pending = null;
   }
 };
